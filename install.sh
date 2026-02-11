@@ -36,6 +36,15 @@ prompt_path() {
   done
 }
 
+prompt_optional() {
+  local label="$1"
+  local out_var="$2"
+  local value=""
+  printf "%b%s%b" "${C_YELLOW}" "$label" "${C_RESET}"
+  read -r value || true
+  eval "$out_var=\"$value\""
+}
+
 confirm() {
   local msg="$1"
   local ans=""
@@ -50,16 +59,111 @@ confirm() {
   done
 }
 
+hash_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+verify_checksum() {
+  local file="$1"
+  local expected="$2"
+  if [ -z "$expected" ]; then
+    return 0
+  fi
+  if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    printf "%bNo sha256 tool found. Skipping checksum.%b\n" "${C_YELLOW}" "${C_RESET}"
+    return 0
+  fi
+  local actual
+  actual=$(hash_file "$file" || true)
+  if [ -z "$actual" ]; then
+    printf "%bFailed to compute checksum for %s%b\n" "${C_RED}" "$file" "${C_RESET}"
+    return 1
+  fi
+  if [ "$actual" != "$expected" ]; then
+    printf "%bChecksum mismatch for %s%b\n" "${C_RED}" "$file" "${C_RESET}"
+    printf "  expected: %s\n  actual:   %s\n" "$expected" "$actual"
+    return 1
+  fi
+  printf "%bChecksum OK:%b %s\n" "${C_GREEN}" "${C_RESET}" "$file"
+}
+
+download_if_url() {
+  local label="$1"
+  local url="$2"
+  local out_var="$3"
+  local target_dir="$4"
+
+  if [ -z "$url" ]; then
+    eval "$out_var=\"\""
+    return 0
+  fi
+
+  mkdir -p "$target_dir"
+  local filename
+  filename=$(basename "$url")
+  local dest="$target_dir/$filename"
+
+  printf "%bDownloading %s...%b\n" "${C_BLUE}" "$label" "${C_RESET}"
+  if command -v curl >/dev/null 2>&1; then
+    curl -L --progress-bar -o "$dest" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -O "$dest" "$url"
+  else
+    printf "%bNeither curl nor wget found.%b\n" "${C_RED}" "${C_RESET}"
+    exit 1
+  fi
+
+  eval "$out_var=\"$dest\""
+}
+
 main() {
   banner
   printf "%bWaydroid Image Switcher Installer%b\n\n" "${C_GREEN}${C_BOLD}" "${C_RESET}"
 
   printf "%bThis will move images into:%b ~/waydroid-images/{tv,a13}\n\n" "${C_BLUE}" "${C_RESET}"
 
-  prompt_path "Path to TV system.img: " tv_system
-  prompt_path "Path to TV vendor.img: " tv_vendor
-  prompt_path "Path to A13 system.img: " a13_system
-  prompt_path "Path to A13 vendor.img: " a13_vendor
+  printf "%bOptional download URLs (press Enter to skip):%b\n" "${C_BOLD}" "${C_RESET}"
+  prompt_optional "TV system.img URL: " tv_system_url
+  prompt_optional "TV vendor.img URL: " tv_vendor_url
+  prompt_optional "A13 system.img URL: " a13_system_url
+  prompt_optional "A13 vendor.img URL: " a13_vendor_url
+
+  dl_dir="$HOME/waydroid-images/downloads"
+  download_if_url "TV system.img" "$tv_system_url" tv_system "$dl_dir"
+  download_if_url "TV vendor.img" "$tv_vendor_url" tv_vendor "$dl_dir"
+  download_if_url "A13 system.img" "$a13_system_url" a13_system "$dl_dir"
+  download_if_url "A13 vendor.img" "$a13_vendor_url" a13_vendor "$dl_dir"
+
+  if [ -z "${tv_system:-}" ]; then
+    prompt_path "Path to TV system.img: " tv_system
+  fi
+  if [ -z "${tv_vendor:-}" ]; then
+    prompt_path "Path to TV vendor.img: " tv_vendor
+  fi
+  if [ -z "${a13_system:-}" ]; then
+    prompt_path "Path to A13 system.img: " a13_system
+  fi
+  if [ -z "${a13_vendor:-}" ]; then
+    prompt_path "Path to A13 vendor.img: " a13_vendor
+  fi
+
+  printf "\n%bOptional SHA256 checksums (press Enter to skip):%b\n" "${C_BOLD}" "${C_RESET}"
+  prompt_optional "TV system.img SHA256: " tv_system_sha
+  prompt_optional "TV vendor.img SHA256: " tv_vendor_sha
+  prompt_optional "A13 system.img SHA256: " a13_system_sha
+  prompt_optional "A13 vendor.img SHA256: " a13_vendor_sha
+
+  verify_checksum "$tv_system" "$tv_system_sha"
+  verify_checksum "$tv_vendor" "$tv_vendor_sha"
+  verify_checksum "$a13_system" "$a13_system_sha"
+  verify_checksum "$a13_vendor" "$a13_vendor_sha"
 
   printf "\n%bReview:%b\n" "${C_BOLD}" "${C_RESET}"
   printf "  TV  system: %s\n" "$tv_system"
