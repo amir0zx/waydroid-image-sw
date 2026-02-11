@@ -6,16 +6,15 @@ Switch Waydroid between **Android TV** and **Android 13** image sets with one co
 - Keeps your image sets organized
 - Restarts Waydroid safely
 
+## Install (Interactive)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/amir0zx/waydroid-image-sw/main/install.sh | bash
+```
+
 ## Quick Start
 
 ```bash
-# Put your images here
-~/waydroid-images/tv/system.img
-~/waydroid-images/tv/vendor.img
-~/waydroid-images/a13/system.img
-~/waydroid-images/a13/vendor.img
-
-# Run
 ./waydroid-switch tv
 ./waydroid-switch a13
 ```
