@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 1 ]; then
+  echo "Usage: waydroid-switch {tv|a13}" >&2
+  exit 2
+fi
+
+choice="$1"
+base="/home/cyberslayer/waydroid-images"
+case "$choice" in
+  tv)  img_path="$base/tv" ;;
+  a13) img_path="$base/a13" ;;
+  *)
+    echo "Unknown option: $choice (use tv or a13)" >&2
+    exit 2
+    ;;
+esac
+
+if [ ! -f "$img_path/system.img" ] || [ ! -f "$img_path/vendor.img" ]; then
+  echo "Missing images in $img_path (need system.img and vendor.img)" >&2
+  exit 1
+fi
+
+cfg="/var/lib/waydroid/waydroid.cfg"
+
+echo "Switching Waydroid images to: $img_path"
+
+# Stop session/container as root
+sudo waydroid session stop >/dev/null 2>&1 || true
+sudo waydroid container stop >/dev/null 2>&1 || true
+
+# Update images_path
+sudo sed -i "s#^images_path = .*#images_path = $img_path#" "$cfg"
+
+# Start session as user with a valid session bus
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+fi
+
+waydroid session start
+
+echo "Done. Current images_path: $img_path"
