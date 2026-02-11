@@ -11,16 +11,30 @@ C_BLUE="\033[34m"
 C_CYAN="\033[36m"
 C_BOLD="\033[1m"
 
+# Ensure interactive prompts work even when piped via curl | bash
+TTY_IN="/dev/tty"
+TTY_OUT="/dev/tty"
+if [ ! -t 0 ] && [ -r /dev/tty ]; then
+  exec </dev/tty
+fi
+if [ ! -t 1 ] || [ ! -w /dev/tty ]; then
+  TTY_OUT="/dev/stdout"
+fi
+
+say() { printf "%b" "$*" >"$TTY_OUT"; }
+sayln() { printf "%b\n" "$*" >"$TTY_OUT"; }
+read_tty() { read -r "$@" <"$TTY_IN"; }
+
 banner() {
-  printf "%b" "${C_CYAN}${C_BOLD}"
-  cat <<'BANNER'
+  say "${C_CYAN}${C_BOLD}"
+  cat >"$TTY_OUT" <<'BANNER'
     __      __           __           _     _                 
    / /___  / /___ ______/ /__________(_)___(_)___  ____ ______
   / / __ \/ / __ \`/ ___/ __/ ___/ __/ / __/ / __ \/ __ \`/ ___/
  / / /_/ / / /_/ / /__/ /_/ /  / /_/ / /_/ / / / / /_/ / /    
 /_/\____/_/\__,_/\___/\__/__/   \__/_/\__/_/_/ /_/\__,_/_/     
 BANNER
-  printf "%b" "${C_RESET}"
+  say "${C_RESET}"
 }
 
 prompt_path() {
@@ -28,13 +42,13 @@ prompt_path() {
   local out_var="$2"
   local path=""
   while true; do
-    printf "%b%s%b" "${C_YELLOW}" "$label" "${C_RESET}"
-    read -r path
+    say "${C_YELLOW}${label}${C_RESET}"
+    read_tty path
     if [ -f "$path" ]; then
       eval "$out_var=\"$path\""
       return 0
     fi
-    printf "%bInvalid path. Try again.%b\n" "${C_RED}" "${C_RESET}"
+    sayln "${C_RED}Invalid path. Try again.${C_RESET}"
   done
 }
 
@@ -42,8 +56,8 @@ prompt_optional() {
   local label="$1"
   local out_var="$2"
   local value=""
-  printf "%b%s%b" "${C_YELLOW}" "$label" "${C_RESET}"
-  read -r value || true
+  say "${C_YELLOW}${label}${C_RESET}"
+  read_tty value || true
   eval "$out_var=\"$value\""
 }
 
@@ -51,12 +65,12 @@ confirm() {
   local msg="$1"
   local ans=""
   while true; do
-    printf "%b%s [y/n]: %b" "${C_BLUE}" "$msg" "${C_RESET}"
-    read -r ans
+    say "${C_BLUE}${msg} [y/n]: ${C_RESET}"
+    read_tty ans
     case "$ans" in
       y|Y) return 0 ;;
       n|N) return 1 ;;
-      *) printf "%bPlease enter y or n.%b\n" "${C_RED}" "${C_RESET}" ;;
+      *) sayln "${C_RED}Please enter y or n.${C_RESET}" ;;
     esac
   done
 }
@@ -79,21 +93,22 @@ verify_checksum() {
     return 0
   fi
   if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
-    printf "%bNo sha256 tool found. Skipping checksum.%b\n" "${C_YELLOW}" "${C_RESET}"
+    sayln "${C_YELLOW}No sha256 tool found. Skipping checksum.${C_RESET}"
     return 0
   fi
   local actual
   actual=$(hash_file "$file" || true)
   if [ -z "$actual" ]; then
-    printf "%bFailed to compute checksum for %s%b\n" "${C_RED}" "$file" "${C_RESET}"
+    sayln "${C_RED}Failed to compute checksum for $file${C_RESET}"
     return 1
   fi
   if [ "$actual" != "$expected" ]; then
-    printf "%bChecksum mismatch for %s%b\n" "${C_RED}" "$file" "${C_RESET}"
-    printf "  expected: %s\n  actual:   %s\n" "$expected" "$actual"
+    sayln "${C_RED}Checksum mismatch for $file${C_RESET}"
+    sayln "  expected: $expected"
+    sayln "  actual:   $actual"
     return 1
   fi
-  printf "%bChecksum OK:%b %s\n" "${C_GREEN}" "${C_RESET}" "$file"
+  sayln "${C_GREEN}Checksum OK:${C_RESET} $file"
 }
 
 download_if_url() {
@@ -112,13 +127,13 @@ download_if_url() {
   filename=$(basename "$url")
   local dest="$target_dir/$filename"
 
-  printf "%bDownloading %s...%b\n" "${C_BLUE}" "$label" "${C_RESET}"
+  sayln "${C_BLUE}Downloading ${label}...${C_RESET}"
   if command -v curl >/dev/null 2>&1; then
     curl -L --progress-bar -o "$dest" "$url"
   elif command -v wget >/dev/null 2>&1; then
     wget -O "$dest" "$url"
   else
-    printf "%bNeither curl nor wget found.%b\n" "${C_RED}" "${C_RESET}"
+    sayln "${C_RED}Neither curl nor wget found.${C_RESET}"
     exit 1
   fi
 
@@ -127,11 +142,11 @@ download_if_url() {
 
 main() {
   banner
-  printf "%bWaydroid Image Switcher Installer%b\n\n" "${C_GREEN}${C_BOLD}" "${C_RESET}"
+  sayln "${C_GREEN}${C_BOLD}Waydroid Image Switcher Installer${C_RESET}\n"
 
-  printf "%bThis will move images into:%b ~/waydroid-images/{tv,a13}\n\n" "${C_BLUE}" "${C_RESET}"
+  sayln "${C_BLUE}This will move images into:${C_RESET} ~/waydroid-images/{tv,a13}\n"
 
-  printf "%bOptional download URLs (press Enter to skip):%b\n" "${C_BOLD}" "${C_RESET}"
+  sayln "${C_BOLD}Optional download URLs (press Enter to skip):${C_RESET}"
   prompt_optional "TV system.img URL: " tv_system_url
   prompt_optional "TV vendor.img URL: " tv_vendor_url
   prompt_optional "A13 system.img URL: " a13_system_url
@@ -156,7 +171,7 @@ main() {
     prompt_path "Path to A13 vendor.img: " a13_vendor
   fi
 
-  printf "\n%bOptional SHA256 checksums (press Enter to skip):%b\n" "${C_BOLD}" "${C_RESET}"
+  sayln "\n${C_BOLD}Optional SHA256 checksums (press Enter to skip):${C_RESET}"
   prompt_optional "TV system.img SHA256: " tv_system_sha
   prompt_optional "TV vendor.img SHA256: " tv_vendor_sha
   prompt_optional "A13 system.img SHA256: " a13_system_sha
@@ -167,14 +182,14 @@ main() {
   verify_checksum "$a13_system" "$a13_system_sha"
   verify_checksum "$a13_vendor" "$a13_vendor_sha"
 
-  printf "\n%bReview:%b\n" "${C_BOLD}" "${C_RESET}"
-  printf "  TV  system: %s\n" "$tv_system"
-  printf "  TV  vendor: %s\n" "$tv_vendor"
-  printf "  A13 system: %s\n" "$a13_system"
-  printf "  A13 vendor: %s\n" "$a13_vendor"
+  sayln "\n${C_BOLD}Review:${C_RESET}"
+  sayln "  TV  system: $tv_system"
+  sayln "  TV  vendor: $tv_vendor"
+  sayln "  A13 system: $a13_system"
+  sayln "  A13 vendor: $a13_vendor"
 
   if ! confirm "Proceed to move these files?"; then
-    printf "%bCancelled.%b\n" "${C_RED}" "${C_RESET}"
+    sayln "${C_RED}Cancelled.${C_RESET}"
     exit 1
   fi
 
@@ -186,8 +201,8 @@ main() {
   mv -v "$a13_system" "$base/a13/system.img"
   mv -v "$a13_vendor" "$base/a13/vendor.img"
 
-  printf "\n%bDone!%b Images are ready.\n" "${C_GREEN}${C_BOLD}" "${C_RESET}"
-  printf "Now run: %b./waydroid-switch tv%b or %b./waydroid-switch a13%b\n" "${C_CYAN}" "${C_RESET}" "${C_CYAN}" "${C_RESET}"
+  sayln "\n${C_GREEN}${C_BOLD}Done!${C_RESET} Images are ready."
+  sayln "Now run: ${C_CYAN}./waydroid-switch tv${C_RESET} or ${C_CYAN}./waydroid-switch a13${C_RESET}"
 }
 
 main "$@"
