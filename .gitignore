@@ -1,0 +1,4 @@
+/target
+/waydroid-image-sw-installer
+*.swp
+.DS_Store

@@ -6,10 +6,14 @@ Switch Waydroid between **Android TV** and **Android 13** image sets with one co
 - Keeps your image sets organized
 - Restarts Waydroid safely
 
-## Install (Interactive)
+## Install (Ratatui TUI)
+
+The installer is a **TUI binary**, so run it directly (not through a pipe):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/amir0zx/waydroid-image-sw/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/amir0zx/waydroid-image-sw/main/install.sh -o /tmp/waydroid-image-sw-installer
+chmod +x /tmp/waydroid-image-sw-installer
+/tmp/waydroid-image-sw-installer
 ```
 
 ## Quick Start
