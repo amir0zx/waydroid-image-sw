@@ -1,47 +1,66 @@
 # waydroid-image-sw
 
-Switch Waydroid between **Android TV** and **Android 13** image sets with one command.
+Universal Waydroid image switcher for Linux.
 
-- Fast, minimal, and script-only
-- Keeps your image sets organized
-- Restarts Waydroid safely
+`waydroid-image-sw` is a terminal UI + CLI tool to switch active Waydroid images safely, manage multiple image profiles, and quickly view the current selected profile.
 
-## Install (Ratatui TUI)
+## Features
 
-The installer is a **TUI binary**, so run it directly (not through a pipe):
+- Universal profile switching (not limited to TV/A13)
+- Detects profiles from `~/waydroid-images/*`
+- Shows current active `images_path` status
+- Interactive Ratatui TUI selector
+- CLI commands for `list`, `status`, and direct switching
+- Bootstrap installer/updater script with version check
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/amir0zx/waydroid-image-sw/main/install.sh -o /tmp/waydroid-image-sw-installer
-chmod +x /tmp/waydroid-image-sw-installer
-/tmp/waydroid-image-sw-installer
-```
-
-## Quick Start
+## Install / Update / Launch
 
 ```bash
-./waydroid-switch tv
-./waydroid-switch a13
+curl -fsSL https://raw.githubusercontent.com/amir0zx/waydroid-image-sw/main/install.sh | bash
 ```
 
-## What It Does
+What this does:
 
-1. Stops Waydroid session/container.
-2. Updates `images_path` in `/var/lib/waydroid/waydroid.cfg`.
-3. Starts Waydroid again under your user session.
+1. Checks whether `~/.local/bin/waydroid-image-sw` exists.
+2. Compares local version vs latest GitHub release.
+3. Installs if missing.
+4. Prompts to update if outdated.
+5. Launches immediately if up to date.
 
-## Requirements
-
-- Waydroid installed
-- `sudo` access for `waydroid` + config edit
-- Image pairs for TV and A13
-
-## Tips
-
-- If your desktop session doesn’t expose DBus, set:
+## TUI Usage
 
 ```bash
-export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+waydroid-image-sw
 ```
+
+Keys:
+
+- `Up/Down` to select profile
+- `Enter` to switch
+- `q` to quit
+
+## CLI Usage
+
+```bash
+waydroid-switch list
+waydroid-switch status
+waydroid-switch <profile>
+```
+
+Profiles are directories under `~/waydroid-images` containing:
+
+- `system.img`
+- `vendor.img`
+
+## Build
+
+```bash
+cargo build --release
+```
+
+## SEO Keywords
+
+Waydroid image switcher, Waydroid profile manager, Linux Waydroid tool, Android TV Waydroid, Waydroid A13, Waydroid image path switch.
 
 ## License
 

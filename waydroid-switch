@@ -1,43 +1,75 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "Usage: waydroid-switch {tv|a13}" >&2
-  exit 2
-fi
+BASE="${HOME}/waydroid-images"
+CFG="/var/lib/waydroid/waydroid.cfg"
 
-choice="$1"
-base="/home/cyberslayer/waydroid-images"
-case "$choice" in
-  tv)  img_path="$base/tv" ;;
-  a13) img_path="$base/a13" ;;
+usage() {
+  cat <<USAGE
+Usage:
+  waydroid-switch list
+  waydroid-switch status
+  waydroid-switch <profile>
+
+Profiles are subdirectories under ${BASE} that contain system.img and vendor.img.
+USAGE
+}
+
+current_images_path() {
+  awk -F'=' '/^images_path[[:space:]]*=/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$CFG"
+}
+
+list_profiles() {
+  [ -d "$BASE" ] || return 0
+  for d in "$BASE"/*; do
+    [ -d "$d" ] || continue
+    [ -f "$d/system.img" ] || continue
+    [ -f "$d/vendor.img" ] || continue
+    basename "$d"
+  done | sort
+}
+
+switch_to() {
+  local profile="$1"
+  local img_path="${BASE}/${profile}"
+
+  if [ ! -f "$img_path/system.img" ] || [ ! -f "$img_path/vendor.img" ]; then
+    echo "Invalid profile '${profile}'. Need system.img and vendor.img in ${img_path}" >&2
+    exit 1
+  fi
+
+  echo "Switching Waydroid images to: ${img_path}"
+
+  sudo waydroid session stop >/dev/null 2>&1 || true
+  sudo waydroid container stop >/dev/null 2>&1 || true
+  sudo sed -i "s#^images_path = .*#images_path = ${img_path}#" "$CFG"
+
+  if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+  fi
+
+  waydroid session start
+  echo "Done. Current images_path: ${img_path}"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  ""|"-h"|"--help")
+    usage
+    ;;
+  list)
+    list_profiles
+    ;;
+  status)
+    cur="$(current_images_path || true)"
+    if [ -n "$cur" ]; then
+      echo "Current images_path: $cur"
+    else
+      echo "Could not read current images_path from ${CFG}" >&2
+      exit 1
+    fi
+    ;;
   *)
-    echo "Unknown option: $choice (use tv or a13)" >&2
-    exit 2
+    switch_to "$cmd"
     ;;
 esac
-
-if [ ! -f "$img_path/system.img" ] || [ ! -f "$img_path/vendor.img" ]; then
-  echo "Missing images in $img_path (need system.img and vendor.img)" >&2
-  exit 1
-fi
-
-cfg="/var/lib/waydroid/waydroid.cfg"
-
-echo "Switching Waydroid images to: $img_path"
-
-# Stop session/container as root
-sudo waydroid session stop >/dev/null 2>&1 || true
-sudo waydroid container stop >/dev/null 2>&1 || true
-
-# Update images_path
-sudo sed -i "s#^images_path = .*#images_path = $img_path#" "$cfg"
-
-# Start session as user with a valid session bus
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-  export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
-fi
-
-waydroid session start
-
-echo "Done. Current images_path: $img_path"
