@@ -123,7 +123,7 @@ struct App {
 
 fn main() -> Result<()> {
     if std::env::args().any(|a| a == "--version" || a == "-V") {
-        println!("waydroid-image-sw {}", APP_VERSION);
+        println!("waydroid-switch {}", APP_VERSION);
         return Ok(());
     }
 
@@ -462,7 +462,7 @@ fn draw_profiles(f: &mut Frame, app: &App) {
         .split(f.size());
 
     let title = Paragraph::new("Waydroid Universal Image Switcher")
-        .block(Block::default().borders(Borders::ALL).title("waydroid-image-sw"))
+        .block(Block::default().borders(Borders::ALL).title("waydroid-switch"))
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
     f.render_widget(title, chunks[0]);
 
@@ -523,7 +523,7 @@ fn draw_manual_add(f: &mut Frame, app: &App) {
         .split(f.size());
 
     let title = Paragraph::new("Manual Add Profile")
-        .block(Block::default().borders(Borders::ALL).title("waydroid-image-sw"))
+        .block(Block::default().borders(Borders::ALL).title("waydroid-switch"))
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
     f.render_widget(title, chunks[0]);
 

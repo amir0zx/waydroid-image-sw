@@ -3,6 +3,10 @@ name = "waydroid-image-sw"
 version = "1.2.0"
 edition = "2021"
 
+[[bin]]
+name = "waydroid-switch"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 crossterm = "0.27"

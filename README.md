@@ -1,56 +1,17 @@
-# waydroid-image-sw
+# waydroid-switch
 
-Universal Waydroid image switcher for Linux.
+Universal Waydroid image switcher (single TUI binary).
 
-`waydroid-image-sw` is a terminal UI + CLI tool to switch active Waydroid images safely, manage multiple image profiles, and quickly view the current selected profile.
+`waydroid-switch` auto-scans `~/waydroid-images` for any profile folders containing `system.img` and `vendor.img`, shows the current active `images_path`, and switches profiles safely.
 
 ## Features
 
-- Universal profile switching (not limited to TV/A13)
-- Detects profiles from `~/waydroid-images/*`
-- Shows current active `images_path` status
-- Interactive Ratatui TUI selector
-- CLI commands for `list`, `status`, and direct switching
-- Bootstrap installer/updater script with version check
-
-## Install / Update / Launch
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/amir0zx/waydroid-image-sw/main/install.sh | bash
-```
-
-What this does:
-
-1. Checks whether `~/.local/bin/waydroid-image-sw` exists.
-2. Compares local version vs latest GitHub release.
-3. Installs if missing.
-4. Prompts to update if outdated.
-5. Launches immediately if up to date.
-
-## TUI Usage
-
-```bash
-waydroid-image-sw
-```
-
-Keys:
-
-- `Up/Down` to select profile
-- `Enter` to switch
-- `q` to quit
-
-## CLI Usage
-
-```bash
-waydroid-switch list
-waydroid-switch status
-waydroid-switch <profile>
-```
-
-Profiles are directories under `~/waydroid-images` containing:
-
-- `system.img`
-- `vendor.img`
+- Single TUI binary: `waydroid-switch`
+- Auto-searches `~/waydroid-images` recursively
+- Supports linked images (symlinks)
+- Shows current active `images_path`
+- Manual add submenu for custom image paths
+- Universal switching (not limited to TV/A13)
 
 ## Build
 
@@ -58,9 +19,33 @@ Profiles are directories under `~/waydroid-images` containing:
 cargo build --release
 ```
 
-## SEO Keywords
+## Install
 
-Waydroid image switcher, Waydroid profile manager, Linux Waydroid tool, Android TV Waydroid, Waydroid A13, Waydroid image path switch.
+`install.sh` only installs the local built binary to `/usr/bin`.
+
+```bash
+./install.sh
+```
+
+## Run
+
+```bash
+waydroid-switch
+```
+
+## TUI Keys
+
+- `Up/Down`: move
+- `Enter`: switch selected profile
+- `a`: manual add submenu
+- `r`: refresh auto-scan list
+- `q`: quit
+
+## Requirements
+
+- Waydroid installed
+- `sudo` access (for updating `/var/lib/waydroid/waydroid.cfg` and stopping/starting session)
+- Image profiles under `~/waydroid-images`
 
 ## License
 
