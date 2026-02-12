@@ -422,7 +422,8 @@ fn switch_to_profile(path: &Path) -> Result<Vec<String>> {
     }
 
     setup_profile_userdata(path, &mut logs)?;
-    reset_overlay_state(&mut logs);
+    maybe_migrate_global_overlay(&mut logs)?;
+    setup_profile_overlays(path, &mut logs)?;
 
     let sed_expr = format!("s#^images_path = .*#images_path = {}#", path.display());
     let sed_msg = run_cmd("sudo", &["sed", "-i", &sed_expr, WAYDROID_CFG])?;
@@ -524,31 +525,91 @@ fn setup_profile_userdata(path: &Path, logs: &mut Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn reset_overlay_state(logs: &mut Vec<String>) {
-    let purge = [
-        "rm",
-        "-rf",
-        "/var/lib/waydroid/overlay_rw/system",
-        "/var/lib/waydroid/overlay_rw/vendor",
-        "/var/lib/waydroid/overlay_work/system",
-        "/var/lib/waydroid/overlay_work/vendor",
-    ];
-    match run_cmd("sudo", &purge) {
-        Ok(msg) => logs.push(format!("overlay purge: {}", msg)),
-        Err(err) => logs.push(format!("overlay purge warning: {}", err)),
+fn maybe_migrate_global_overlay(logs: &mut Vec<String>) -> Result<()> {
+    let overlay_rw_live = Path::new("/var/lib/waydroid/overlay_rw");
+    let overlay_work_live = Path::new("/var/lib/waydroid/overlay_work");
+
+    let rw_is_link = symlink_path_points_somewhere(overlay_rw_live);
+    let work_is_link = symlink_path_points_somewhere(overlay_work_live);
+    if rw_is_link && work_is_link {
+        return Ok(());
     }
 
-    let recreate = [
-        "mkdir",
-        "-p",
-        "/var/lib/waydroid/overlay_rw/system",
-        "/var/lib/waydroid/overlay_rw/vendor",
-        "/var/lib/waydroid/overlay_work/system",
-        "/var/lib/waydroid/overlay_work/vendor",
-    ];
-    match run_cmd("sudo", &recreate) {
-        Ok(msg) => logs.push(format!("overlay recreate: {}", msg)),
-        Err(err) => logs.push(format!("overlay recreate warning: {}", err)),
+    let Some(current) = current_images_path().ok() else {
+        logs.push("overlay migration warning: current images_path unknown, skipping migration".to_string());
+        return Ok(());
+    };
+
+    let home = home_dir().context("Failed to resolve HOME")?;
+    let current_profile_id = profile_id_from_path(Path::new(&current), &home);
+    let profile_root = home
+        .join(".local/share/waydroid/profiles")
+        .join(current_profile_id);
+    let profile_overlay_rw = profile_root.join("overlay_rw");
+    let profile_overlay_work = profile_root.join("overlay_work");
+    let profile_overlay_rw_s = profile_overlay_rw.to_string_lossy().to_string();
+    let profile_overlay_work_s = profile_overlay_work.to_string_lossy().to_string();
+
+    fs::create_dir_all(&profile_root)?;
+
+    if overlay_rw_live.exists() && !rw_is_link && !profile_overlay_rw.exists() {
+        run_cmd("sudo", &["mv", "/var/lib/waydroid/overlay_rw", &profile_overlay_rw_s])?;
+        logs.push("overlay migration: moved legacy overlay_rw into active profile".to_string());
+    }
+    if overlay_work_live.exists() && !work_is_link && !profile_overlay_work.exists() {
+        run_cmd("sudo", &["mv", "/var/lib/waydroid/overlay_work", &profile_overlay_work_s])?;
+        logs.push("overlay migration: moved legacy overlay_work into active profile".to_string());
+    }
+
+    Ok(())
+}
+
+fn setup_profile_overlays(path: &Path, logs: &mut Vec<String>) -> Result<()> {
+    let home = home_dir().context("Failed to resolve HOME")?;
+    let profile_id = profile_id_from_path(path, &home);
+    let profile_root = home
+        .join(".local/share/waydroid/profiles")
+        .join(&profile_id);
+    let profile_overlay_rw = profile_root.join("overlay_rw");
+    let profile_overlay_work = profile_root.join("overlay_work");
+
+    fs::create_dir_all(profile_overlay_rw.join("system"))?;
+    fs::create_dir_all(profile_overlay_rw.join("vendor"))?;
+    fs::create_dir_all(profile_overlay_work.join("system"))?;
+    fs::create_dir_all(profile_overlay_work.join("vendor"))?;
+
+    let profile_overlay_rw_s = profile_overlay_rw.to_string_lossy().to_string();
+    let profile_overlay_work_s = profile_overlay_work.to_string_lossy().to_string();
+
+    run_cmd("sudo", &["rm", "-rf", "/var/lib/waydroid/overlay_rw"])?;
+    run_cmd("sudo", &["rm", "-rf", "/var/lib/waydroid/overlay_work"])?;
+    run_cmd(
+        "sudo",
+        &["ln", "-s", &profile_overlay_rw_s, "/var/lib/waydroid/overlay_rw"],
+    )?;
+    run_cmd(
+        "sudo",
+        &[
+            "ln",
+            "-s",
+            &profile_overlay_work_s,
+            "/var/lib/waydroid/overlay_work",
+        ],
+    )?;
+
+    logs.push(format!(
+        "overlay: active profile '{}' -> {}",
+        profile_id,
+        profile_root.display()
+    ));
+
+    Ok(())
+}
+
+fn symlink_path_points_somewhere(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => meta.file_type().is_symlink(),
+        Err(_) => false,
     }
 }
 
