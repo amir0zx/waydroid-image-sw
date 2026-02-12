@@ -15,7 +15,7 @@ use std::{
     io,
     os::unix::fs::symlink,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     time::Duration,
 };
 
@@ -211,20 +211,24 @@ fn handle_profiles_key(
             app.screen = Screen::ManualAdd;
             app.status = "Manual add mode: enter profile name and image paths".to_string();
         }
-        KeyCode::Enter => {
-            let selected = app.profiles[app.selected].clone();
-            app.status = format!("Switching to '{}'...", selected.name);
-            terminal.draw(|f| draw(f, app))?;
+                KeyCode::Enter => {
+                    let selected = app.profiles[app.selected].clone();
+                    app.status = format!("Switching to '{}'...", selected.name);
+                    terminal.draw(|f| draw(f, app))?;
 
-            match switch_to_profile(&selected.path) {
-                Ok(_) => {
-                    app.current_images_path = Some(selected.path.to_string_lossy().to_string());
-                    app.status = format!("Switched to '{}'.", selected.name);
-                }
-                Err(e) => {
-                    app.status = format!("Switch failed: {}", e);
-                }
-            }
+                    match switch_to_profile(&selected.path) {
+                        Ok(logs) => {
+                            app.current_images_path = Some(selected.path.to_string_lossy().to_string());
+                            app.status = format!(
+                                "Switched to '{}'.\n{}",
+                                selected.name,
+                                logs.join("\n")
+                            );
+                        }
+                        Err(e) => {
+                            app.status = format!("Switch failed: {}", e);
+                        }
+                    }
         }
         _ => {}
     }
@@ -398,35 +402,58 @@ fn current_images_path() -> Result<String> {
     bail!("images_path not found in waydroid.cfg")
 }
 
-fn switch_to_profile(path: &Path) -> Result<()> {
+fn switch_to_profile(path: &Path) -> Result<Vec<String>> {
+    let mut logs = Vec::new();
+
     if !path.join("system.img").is_file() || !path.join("vendor.img").is_file() {
         bail!("{} missing system.img/vendor.img", path.display());
     }
+    logs.push(format!("Selected path: {}", path.display()));
 
-    let _ = run_cmd("sudo", &["waydroid", "session", "stop"]);
-    let _ = run_cmd("sudo", &["waydroid", "container", "stop"]);
+    match run_cmd("sudo", &["waydroid", "session", "stop"]) {
+        Ok(msg) => logs.push(format!("session stop: {}", msg)),
+        Err(err) => logs.push(format!("session stop warning: {}", err)),
+    }
+    match run_cmd("sudo", &["waydroid", "container", "stop"]) {
+        Ok(msg) => logs.push(format!("container stop: {}", msg)),
+        Err(err) => logs.push(format!("container stop warning: {}", err)),
+    }
 
     let sed_expr = format!("s#^images_path = .*#images_path = {}#", path.display());
-    run_cmd("sudo", &["sed", "-i", &sed_expr, WAYDROID_CFG])?;
+    let sed_msg = run_cmd("sudo", &["sed", "-i", &sed_expr, WAYDROID_CFG])?;
+    logs.push(format!("config update: {}", sed_msg));
 
     if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
         if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
             std::env::set_var("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={}/bus", xdg));
+            logs.push("dbus: set from XDG_RUNTIME_DIR".to_string());
         }
     }
 
-    run_cmd("waydroid", &["session", "start"])?;
-    Ok(())
+    // Start in background to avoid freezing the TUI while the session comes up.
+    let child = Command::new("waydroid")
+        .args(["session", "start"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("Failed to spawn waydroid session start")?;
+    logs.push(format!("session start: spawned pid {}", child.id()));
+
+    Ok(logs)
 }
 
-fn run_cmd(cmd: &str, args: &[&str]) -> Result<()> {
+fn run_cmd(cmd: &str, args: &[&str]) -> Result<String> {
     let out = Command::new(cmd)
         .args(args)
         .output()
         .with_context(|| format!("Failed to run: {} {}", cmd, args.join(" ")))?;
 
     if out.status.success() {
-        return Ok(());
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if stdout.is_empty() {
+            return Ok("ok".to_string());
+        }
+        return Ok(stdout);
     }
 
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
@@ -456,7 +483,7 @@ fn draw_profiles(f: &mut Frame, app: &App) {
         .constraints([
             Constraint::Length(4),
             Constraint::Min(8),
-            Constraint::Length(4),
+            Constraint::Length(9),
             Constraint::Length(2),
         ])
         .split(f.size());
