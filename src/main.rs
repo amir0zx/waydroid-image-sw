@@ -10,7 +10,9 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
 use std::{
+    collections::hash_map::DefaultHasher,
     collections::BTreeMap,
+    hash::{Hash, Hasher},
     fs,
     io,
     os::unix::fs::symlink,
@@ -419,6 +421,9 @@ fn switch_to_profile(path: &Path) -> Result<Vec<String>> {
         Err(err) => logs.push(format!("container stop warning: {}", err)),
     }
 
+    setup_profile_userdata(path, &mut logs)?;
+    reset_overlay_state(&mut logs);
+
     let sed_expr = format!("s#^images_path = .*#images_path = {}#", path.display());
     let sed_msg = run_cmd("sudo", &["sed", "-i", &sed_expr, WAYDROID_CFG])?;
     logs.push(format!("config update: {}", sed_msg));
@@ -440,6 +445,143 @@ fn switch_to_profile(path: &Path) -> Result<Vec<String>> {
     logs.push(format!("session start: spawned pid {}", child.id()));
 
     Ok(logs)
+}
+
+fn setup_profile_userdata(path: &Path, logs: &mut Vec<String>) -> Result<()> {
+    let home = home_dir().context("Failed to resolve HOME")?;
+    let waydroid_state = home.join(".local/share/waydroid");
+    let live_data = waydroid_state.join("data");
+    let profiles_root = waydroid_state.join("profiles");
+    let profile_id = profile_id_from_path(path, &home);
+    let profile_data = profiles_root.join(&profile_id).join("data");
+
+    fs::create_dir_all(&profile_data)
+        .with_context(|| format!("Failed creating {}", profile_data.display()))?;
+
+    if let Ok(target) = fs::read_link(&live_data) {
+        if target == profile_data {
+            logs.push(format!(
+                "userdata: already linked to profile '{}'",
+                profile_id
+            ));
+            return Ok(());
+        }
+    }
+
+    if live_data.exists() {
+        if live_data.is_symlink() {
+            fs::remove_file(&live_data)
+                .with_context(|| format!("Failed removing symlink {}", live_data.display()))?;
+            logs.push("userdata: removed old profile symlink".to_string());
+        } else {
+            let legacy = profiles_root.join("_legacy").join("data");
+            if !legacy.exists() {
+                let legacy_parent = legacy.parent().context("Legacy path has no parent")?;
+                fs::create_dir_all(legacy_parent)?;
+                fs::rename(&live_data, &legacy).with_context(|| {
+                    format!(
+                        "Failed migrating existing userdata {} -> {}",
+                        live_data.display(),
+                        legacy.display()
+                    )
+                })?;
+                logs.push(format!("userdata: migrated existing data to {}", legacy.display()));
+            } else {
+                let backup = waydroid_state.join("data.backup");
+                if backup.exists() {
+                    fs::remove_dir_all(&backup).with_context(|| {
+                        format!("Failed removing stale backup {}", backup.display())
+                    })?;
+                }
+                fs::rename(&live_data, &backup).with_context(|| {
+                    format!(
+                        "Failed moving existing userdata {} -> {}",
+                        live_data.display(),
+                        backup.display()
+                    )
+                })?;
+                logs.push(format!("userdata: moved existing data to {}", backup.display()));
+            }
+        }
+    }
+
+    if let Some(parent) = live_data.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    symlink(&profile_data, &live_data).with_context(|| {
+        format!(
+            "Failed linking userdata {} -> {}",
+            live_data.display(),
+            profile_data.display()
+        )
+    })?;
+    logs.push(format!(
+        "userdata: active profile '{}' -> {}",
+        profile_id,
+        profile_data.display()
+    ));
+
+    Ok(())
+}
+
+fn reset_overlay_state(logs: &mut Vec<String>) {
+    let purge = [
+        "rm",
+        "-rf",
+        "/var/lib/waydroid/overlay_rw/system",
+        "/var/lib/waydroid/overlay_rw/vendor",
+        "/var/lib/waydroid/overlay_work/system",
+        "/var/lib/waydroid/overlay_work/vendor",
+    ];
+    match run_cmd("sudo", &purge) {
+        Ok(msg) => logs.push(format!("overlay purge: {}", msg)),
+        Err(err) => logs.push(format!("overlay purge warning: {}", err)),
+    }
+
+    let recreate = [
+        "mkdir",
+        "-p",
+        "/var/lib/waydroid/overlay_rw/system",
+        "/var/lib/waydroid/overlay_rw/vendor",
+        "/var/lib/waydroid/overlay_work/system",
+        "/var/lib/waydroid/overlay_work/vendor",
+    ];
+    match run_cmd("sudo", &recreate) {
+        Ok(msg) => logs.push(format!("overlay recreate: {}", msg)),
+        Err(err) => logs.push(format!("overlay recreate warning: {}", err)),
+    }
+}
+
+fn profile_id_from_path(path: &Path, home: &Path) -> String {
+    let base = home.join("waydroid-images");
+    let raw = if let Ok(rel) = path.strip_prefix(&base) {
+        rel.to_string_lossy().to_string()
+    } else {
+        path.to_string_lossy().to_string()
+    };
+
+    let mut hasher = DefaultHasher::new();
+    raw.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let mut cleaned = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    while cleaned.contains("__") {
+        cleaned = cleaned.replace("__", "_");
+    }
+    cleaned = cleaned.trim_matches('_').to_string();
+    if cleaned.is_empty() {
+        cleaned = "profile".to_string();
+    }
+    format!("{}_{:08x}", cleaned, (hash & 0xffff_ffff))
 }
 
 fn run_cmd(cmd: &str, args: &[&str]) -> Result<String> {
